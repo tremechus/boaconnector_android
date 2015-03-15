@@ -8,41 +8,50 @@ import com.caucho.hessian.io.Hessian2Input;
 import com.caucho.hessian.io.Hessian2Output;
 import com.sqlboaconnector.server.CommandContext;
 import com.sqlboaconnector.server.ServerCommand;
+import com.sqlboaconnector.server.ServerResponse;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Created by trevor on 3/6/2015.
  */
-public class QueryForStringListCommand implements ServerCommand {
+public class ListCommand implements ServerCommand {
 
     @Override
-    public void execute(CommandContext context, Hessian2Input request, Hessian2Output response) throws IOException, SQLException {
+    public ServerResponse execute(CommandContext context, JSONObject request) throws IOException, SQLException {
 
-        String query = request.readString();
-        Log.d("####", "Query: " + query);
+        String query = request.optString("query");
 
         SQLiteDatabase db = context.dbProvider.open();
-        Log.d("####", "Got db: " + db);
 
-        List<String> results = new ArrayList<>();
+        Response response = new Response();
 
         Cursor cursor = db.rawQuery(query, new String[]{});
         while (cursor.moveToNext()) {
             String value = cursor.getString(0);
-            Log.d("####", "\tFound: " + value);
-            results.add(value);
+            response.results.put(value);
         }
 
         db.close();
 
-        Log.d("####", "\twriting response");
-        response.writeObject(results);
-        Log.d("####", "\tall done");
+        return response;
+    }
+
+    private class Response extends SuccessResponse {
+        JSONArray results = new JSONArray();
+
+        @Override
+        protected void applyJson(JSONObject o) throws JSONException {
+            super.applyJson(o);
+
+            o.put("list", results);
+        }
     }
 }

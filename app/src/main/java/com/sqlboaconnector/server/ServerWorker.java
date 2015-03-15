@@ -5,14 +5,11 @@ import android.util.Log;
 import com.caucho.hessian.io.Hessian2Input;
 import com.caucho.hessian.io.Hessian2Output;
 import com.sqlboaconnector.api.DatabaseProvider;
+import com.sqlboaconnector.server.command.ErrorResponse;
 
-import java.io.BufferedReader;
+import org.json.JSONObject;
+
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.PrintWriter;
-import java.io.Reader;
 import java.net.Socket;
 
 public class ServerWorker implements Runnable {
@@ -27,32 +24,44 @@ public class ServerWorker implements Runnable {
 
     @Override
     public void run() {
+        Hessian2Output out = null;
+        Hessian2Input in;
+
         try {
-            Hessian2Output out = new Hessian2Output(socket.getOutputStream());
-            Hessian2Input in = new Hessian2Input(socket.getInputStream());
+            out = new Hessian2Output(socket.getOutputStream());
+            in = new Hessian2Input(socket.getInputStream());
 
             CommandContext context = new CommandContext();
             context.dbProvider = dbProvider;
 
-            while (true) {
-                Log.d("####", "Obtaining next command ...");
-                String commandKey = in.readString();
-                Log.d("####", "\t'" + commandKey + "'");
+            JSONObject request = new JSONObject(in.readString());
 
-                ServerCommand command = commandMap.get(commandKey);
-                if (command == null) {
-                    Log.d("####", "Could not find command for key '" + commandKey + "'");
-                    continue;
-                }
-                Log.d("####", "\tExecuting command");
-
-                command.execute(context, in, out);
-                out.flush();
+            ServerCommand command = commandMap.get(request.optString("command"));
+            if (command == null) {
+                out.writeString(new ErrorResponse(ErrorResponse.ErrorCode.MISSINGCOMMAND, null).toJson());
+                return;
             }
 
+            ServerResponse response = command.execute(context, request);
+            out.writeString(response.toJson());
         } catch (Exception e) {
+            try {
+                out.writeString(new ErrorResponse(ErrorResponse.ErrorCode.MISSINGCOMMAND, e.getMessage()).toJson());
+            } catch (IOException e2) {
+                // TODO: better response?
+                e2.printStackTrace();
+            }
             e.printStackTrace();
-            Log.d("####", "Remote connection closed");
+        } finally {
+            if (socket != null) {
+                try {
+                    out.flush();
+                    socket.close();
+                } catch (IOException e) {
+                    // TODO: More details?
+                    e.printStackTrace();
+                }
+            }
         }
 
     }
